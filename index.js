@@ -2,17 +2,18 @@
 // 1. 시뮬레이션 환경 변수 (이곳에서 수정 가능)
 // ==========================================
 const CONFIG = {
-  gridSize: 4, // 초기 격자 너비 (예: 4x4)
+  gridSize: 5, // 초기 격자 너비 (예: 5x5)
   numLayers: 4, // 초기 HBM 층수 (예: 4Hi)
 
   ambientTemp: 45.0, // 주변 기본 온도 (섭씨)
   targetTemp: 60.9, // 목표 최고 온도 (섭씨)
 
-  // 열 발생 모델
-  heatPerLayer: 10.0, // 층(Layer)당 발생하는 열 증가량
+  // 열 발생 모델 (파이썬 설정 반영)
+  heatLogicDie: 20.0, // 로직 다이(베이스) 고정 발열에 의한 온도 증가량
+  heatPerCoreLayer: 5.0, // 코어 다이 층(Layer)당 발생하는 열 증가량
 
   // 쿨링(TSV) 모델
-  baseCoolingPerTsv: 18.0, // TSV 1개당 기본 냉각 성능
+  baseCoolingPerTsv: 5.5, // TSV 1개당 기본 냉각 성능 (약 5~6개 배치 시 목표 도달)
   distancePenalty: 0.8, // 중앙에서 멀어질수록 냉각 성능이 떨어지는 비율
 };
 
@@ -47,8 +48,8 @@ const tempProgressBar = document.getElementById("tempProgressBar");
 // ==========================================
 
 function calculateTemperature() {
-  // 1. 초기 온도 계산 (주변 온도 + (층수 * 층당 발열량))
-  let maxTemp = CONFIG.ambientTemp + state.numLayers * CONFIG.heatPerLayer;
+  // 1. 초기 온도 계산 (주변 온도 + 로직 다이 발열 + (코어 다이 층수 * 층당 발열량))
+  let maxTemp = CONFIG.ambientTemp + CONFIG.heatLogicDie + (state.numLayers * CONFIG.heatPerCoreLayer);
   state.initialTemp = maxTemp;
 
   // 중앙 좌표 (격자가 짝수면 소수점이 됨, 예: 4x4면 1.5)
@@ -74,8 +75,8 @@ function calculateTemperature() {
     maxTemp -= coolingEffect;
   });
 
-  // 주변 온도 이하로는 떨어지지 않음
-  state.currentTemp = Math.max(CONFIG.ambientTemp, maxTemp);
+  // 온도 하한선 제한 해제 (계속 떨어지도록 변경)
+  state.currentTemp = maxTemp;
 }
 
 function checkSuccess() {
