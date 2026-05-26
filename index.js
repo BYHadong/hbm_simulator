@@ -78,20 +78,6 @@ function calculateTemperature() {
   state.currentTemp = Math.max(CONFIG.ambientTemp, maxTemp);
 }
 
-function checkSuccess() {
-  if (state.currentTemp <= CONFIG.targetTemp && !state.isSuccess) {
-    state.isSuccess = true;
-    messageArea.innerHTML = `<span class="success-msg">🎉 목표 온도(${CONFIG.targetTemp}℃) 달성! 완료되었습니다.</span>`;
-
-    // 성공 시 남은 빈칸 클릭 방지 효과
-    const emptyCells = document.querySelectorAll(".grid-cell:not(.has-tsv)");
-    emptyCells.forEach((cell) => {
-      cell.style.opacity = "0.5";
-      cell.style.cursor = "not-allowed";
-    });
-  }
-}
-
 function handleCellClick(r, c, cellElement) {
   if (state.isSuccess) return; // 이미 성공했으면 클릭 무시
 
@@ -196,8 +182,6 @@ function updateGame() {
   if (progressPercent > 100) progressPercent = 100;
 
   tempProgressBar.style.width = `${progressPercent}%`;
-
-  checkSuccess();
 }
 
 // ==========================================
