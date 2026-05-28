@@ -5,83 +5,85 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HBM TSV 최적화 시뮬레이터</title>
     <link rel="stylesheet" href="./index.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="./index.js" defer></script>
   </head>
   <body>
-    <div class="container">
-      <h1>HBM TSV 열방산 시뮬레이터</h1>
+    <div class="app-wrapper">
+      <div class="sidebar" id="sidebar">
+        <h1>HBM TSV 열방산 시뮬레이터</h1>
 
-      <div class="settings-panel">
-        <div class="setting-item">
-          <label for="inputGridSize">너비 (N x N):</label>
-          <input type="number" id="inputGridSize" min="3" max="10" step="1" />
-        </div>
-        <div class="setting-item">
-          <label for="inputNumLayers">HBM 층수:</label>
-          <input type="number" id="inputNumLayers" min="2" max="12" step="1" />
-        </div>
-        <button id="btnApply">적용 및 리셋</button>
-        <button id="btnAutoSolve" class="btn-secondary">자동 최적화 (Auto)</button>
-      </div>
-
-      <div class="dashboard">
-        <div class="stat-box">
-          <div class="stat-title">현재 최고 온도</div>
-          <div class="stat-value" id="currentTempDisplay">-- °C</div>
-          <div class="stat-title" style="margin-top: 5px">
-            목표: <span id="targetTempDisplay">--</span> °C
+        <div class="settings-panel">
+          <div class="setting-item">
+            <label for="inputGridSize">너비 (N x N):</label>
+            <input type="number" id="inputGridSize" min="3" max="10" step="1" />
+          </div>
+          <div class="setting-item">
+            <label for="inputNumLayers">HBM 층수:</label>
+            <input type="number" id="inputNumLayers" min="2" max="12" step="1" />
+          </div>
+          <div class="setting-item">
+            <label for="inputSpeed">배속:</label>
+            <select id="inputSpeed">
+              <option value="600">1x (기본)</option>
+              <option value="300">2x (빠름)</option>
+              <option value="120">5x (매우 빠름)</option>
+              <option value="10">Max</option>
+            </select>
+          </div>
+          <div class="button-group">
+            <button id="btnApply">적용/리셋</button>
+            <button id="btnAutoSolve" class="btn-secondary">자동 최적화</button>
+            <button id="btnInstantSolve" class="btn-warning">즉시 완료</button>
           </div>
         </div>
-        <div class="stat-box">
-          <div class="stat-title">설치된 TSV 클러스터</div>
-          <div
-            class="stat-value"
-            id="tsvCountDisplay"
-            style="color: var(--copper)"
-          >
-            0
+
+        <div class="dashboard">
+          <div class="stat-box">
+            <div class="stat-title">현재 최고 온도</div>
+            <div class="stat-value" id="currentTempDisplay">-- °C</div>
+            <div class="stat-title" style="margin-top: 5px">
+              목표: <span id="targetTempDisplay">--</span> °C
+            </div>
           </div>
-          <div class="stat-title" style="margin-top: 5px" id="layerDisplay">
-            (--Hi HBM)
+          <div class="stat-box">
+            <div class="stat-title">설치된 TSV 클러스터</div>
+            <div class="stat-value" id="tsvCountDisplay" style="color: var(--copper)">0</div>
+            <div class="stat-title" style="margin-top: 5px" id="layerDisplay">(--Hi HBM)</div>
           </div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-title">예상 물리 TSV 핀 수</div>
-          <div class="stat-value" id="estTsvDisplay" style="color: #6f42c1">
-            0
-          </div>
-          <div class="stat-title" style="margin-top: 5px">
-            Pitch: 40 µm
+          <div class="stat-box">
+            <div class="stat-title">예상 물리 TSV 핀 수</div>
+            <div class="stat-value" id="estTsvDisplay" style="color: #6f42c1">0</div>
+            <div class="stat-title" style="margin-top: 5px">Pitch: 40 µm</div>
           </div>
         </div>
-      </div>
 
-      <div class="progress-bar-container">
-        <div class="progress-bar" id="tempProgressBar"></div>
-      </div>
-
-      <div
-        style="
-          text-align: center;
-          margin: 20px 0 10px;
-          font-size: 0.9rem;
-          color: #6c757d;
-        "
-      >
-        마우스 클릭으로 TSV를 배치하여 온도를 낮추거나, 자동 최적화(Auto) 버튼을 눌러보세요.
-      </div>
-
-      <div class="grid-container" id="grid">
-        <!-- Cells will be generated here -->
-      </div>
-
-      <div class="message-area" id="messageArea"></div>
-
-      <div class="console-container">
-        <div class="console-header">시뮬레이션 실시간 로그</div>
-        <div class="console-body" id="consoleLog">
-          <div class="log-line text-muted">시스템 준비 완료. 시뮬레이터를 시작하십시오.</div>
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="tempProgressBar"></div>
         </div>
+
+        <div class="console-container">
+          <div class="console-header">시뮬레이션 실시간 로그</div>
+          <div class="console-body" id="consoleLog">
+            <div class="log-line text-muted">시스템 준비 완료. 시뮬레이터를 시작하십시오.</div>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="tempChart"></canvas>
+        </div>
+      </div>
+
+      <div class="resizer" id="resizer"></div>
+
+      <div class="main-content">
+        <div class="instruction-text">
+          마우스 클릭으로 TSV를 배치하여 온도를 낮추거나, 자동 최적화(Auto) 버튼을 눌러보세요.
+        </div>
+        <div class="grid-container" id="grid">
+          <!-- Cells will be generated here -->
+        </div>
+        <div class="message-area" id="messageArea"></div>
       </div>
     </div>
   </body>

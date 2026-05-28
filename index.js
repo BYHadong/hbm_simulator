@@ -8,13 +8,13 @@ const CONFIG = {
   ambientTemp: 45.0, // 주변 기본 온도 (섭씨)
   targetTemp: 60.9, // 목표 최고 온도 (섭씨)
 
-  // 열 발생 모델 (파이썬 설정 반영)
-  heatLogicDie: 20.0, // 로직 다이(베이스) 고정 발열에 의한 온도 증가량
-  heatPerCoreLayer: 5.0, // 코어 다이 층(Layer)당 발생하는 열 증가량
+  // 열 발생 모델 (파이썬 설정 반영: P_logic=2.0W, P_core_layer=2.0W)
+  heatLogicDie: 10.0, // 로직 다이(베이스) 고정 발열에 의한 온도 증가량
+  heatPerCoreLayer: 10.0, // 코어 다이 층(Layer)당 발생하는 열 증가량
 
   // 쿨링(TSV) 모델
-  baseCoolingPerTsv: 5.5, // TSV 1개당 기본 냉각 성능 (약 5~6개 배치 시 목표 도달)
-  distancePenalty: 0.8, // 중앙에서 멀어질수록 냉각 성능이 떨어지는 비율
+  baseCoolingPerTsv: 0.12, // TSV 1개당 초과 온도(발열) 감소 비율 (12% 감소)
+  distancePenalty: 0.6, // 중앙에서 멀어질수록 냉각 성능이 떨어지는 비율
 };
 
 // ==========================================
@@ -30,6 +30,12 @@ let state = {
   isSuccess: false,
 };
 let autoSolveInterval = null;
+let currentSpeed = 600;
+
+let tempChart = null;
+let chartLabels = [];
+let chartData = [];
+let chartStep = 0;
 
 // ==========================================
 // 3. DOM 요소 캐싱
@@ -39,6 +45,8 @@ const inputGridSize = document.getElementById("inputGridSize");
 const inputNumLayers = document.getElementById("inputNumLayers");
 const btnApply = document.getElementById("btnApply");
 const btnAutoSolve = document.getElementById("btnAutoSolve");
+const btnInstantSolve = document.getElementById("btnInstantSolve");
+const inputSpeed = document.getElementById("inputSpeed");
 const currentTempDisplay = document.getElementById("currentTempDisplay");
 const targetTempDisplay = document.getElementById("targetTempDisplay");
 const tsvCountDisplay = document.getElementById("tsvCountDisplay");
@@ -75,15 +83,24 @@ function calculateTemperature() {
     }
   }
 
-  // 2. 각 TSV에 의한 공간적 냉각 효과 적용
+  // 2. 각 TSV에 의한 공간적 냉각 효과 적용 (로그형 점근 곡선을 위한 곱셈 감쇠 모델)
+  // 파이썬의 물리 모델처럼 델타 T(초과 온도)에 비례해서 열이 빠져나가도록 수정
   const layerPenalty = Math.sqrt(state.numLayers / 4); // 4층 기준 패널티 1.0
 
   state.placedTSVs.forEach((tsv) => {
     for (let r = 0; r < state.gridSize; r++) {
       for (let c = 0; c < state.gridSize; c++) {
         const distToTsv = Math.sqrt(Math.pow(r - tsv.r, 2) + Math.pow(c - tsv.c, 2));
-        const coolingEffect = CONFIG.baseCoolingPerTsv / layerPenalty / (1 + distToTsv * CONFIG.distancePenalty);
-        state.gridTemp[r][c] -= coolingEffect;
+        
+        // TSV가 차감하는 초과 온도의 비율 (예: 0.12)
+        const coolingFactor = (CONFIG.baseCoolingPerTsv / layerPenalty) / (1 + distToTsv * CONFIG.distancePenalty);
+        
+        // 현재 셀의 주변 온도 대비 '초과 발열 온도'
+        const excess = state.gridTemp[r][c] - CONFIG.ambientTemp;
+        
+        // 초과 온도에 (1 - coolingFactor)를 곱하여 감쇠
+        const multiplier = Math.max(0, 1 - coolingFactor);
+        state.gridTemp[r][c] = CONFIG.ambientTemp + (excess * multiplier);
       }
     }
   });
@@ -122,6 +139,7 @@ function handleCellClick(r, c, cellElement) {
   }
 
   updateGame();
+  addChartPoint(state.currentTemp);
 }
 
 // ==========================================
@@ -151,6 +169,7 @@ function initGame() {
 
   renderGrid();
   updateGame();
+  resetChart(state.currentTemp);
 }
 
 function renderGrid() {
@@ -161,7 +180,8 @@ function renderGrid() {
 
   const maxGridPixels = 350;
   const gap = 8;
-  const cellSize = (maxGridPixels - gap * (state.gridSize - 1)) / state.gridSize;
+  let cellSize = (maxGridPixels - gap * (state.gridSize - 1)) / state.gridSize;
+  cellSize = Math.max(24, Math.floor(cellSize)); // 최소 24x24 픽셀 보장 및 정수 단위 맞춤
 
   const centerR = (state.gridSize - 1) / 2;
   const centerC = (state.gridSize - 1) / 2;
@@ -301,6 +321,72 @@ function clearLog() {
   }
 }
 
+// 차트 관련 함수
+function initChart() {
+  const ctx = document.getElementById("tempChart").getContext("2d");
+  tempChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "최고 온도 (Tmax)",
+          data: [],
+          borderColor: "rgba(220, 53, 69, 1)",
+          backgroundColor: "rgba(220, 53, 69, 0.2)",
+          tension: 0.1,
+          pointStyle: "circle",
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        },
+        {
+          label: "목표 온도 (Target)",
+          data: [],
+          borderColor: "rgba(25, 135, 84, 1)",
+          borderDash: [5, 5],
+          pointRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          title: { display: true, text: "Optimization step" },
+        },
+        y: {
+          title: { display: true, text: "Maximum temperature [degC]" },
+        },
+      },
+    },
+  });
+}
+
+function resetChart(initialTemp) {
+  if (!tempChart) initChart();
+  chartStep = 0;
+  chartLabels = [0];
+  chartData = [initialTemp];
+  tempChart.data.labels = chartLabels;
+  tempChart.data.datasets[0].data = chartData;
+  tempChart.data.datasets[1].data = [CONFIG.targetTemp];
+  tempChart.update();
+}
+
+function addChartPoint(tmax) {
+  chartStep++;
+  chartLabels.push(chartStep);
+  chartData.push(tmax);
+  if (tempChart) {
+    tempChart.data.labels = chartLabels;
+    tempChart.data.datasets[0].data = chartData;
+    tempChart.data.datasets[1].data = chartLabels.map(() => CONFIG.targetTemp);
+    tempChart.update();
+  }
+}
+
 // 핫스팟 탐색 및 그리디 탐색 시뮬레이션
 function findBestTsvCandidate() {
   let maxT = -999;
@@ -387,12 +473,13 @@ function startAutoSolve() {
     }
 
     updateGame();
+    addChartPoint(state.currentTemp);
     addLog(`Step ${state.placedTSVs.length}: TSV 배치 (${best.r + 1}, ${best.c + 1}) -> 최고 온도: ${state.currentTemp.toFixed(1)}°C`, "info");
 
     if (state.isSuccess) {
       stopAutoSolve();
     }
-  }, 600);
+  }, currentSpeed);
 }
 
 function stopAutoSolve() {
@@ -404,11 +491,96 @@ function stopAutoSolve() {
   btnAutoSolve.style.backgroundColor = ""; // Reset to default .btn-secondary class color
 }
 
+function instantSolve() {
+  if (state.isSuccess) {
+    addLog("이미 목표 온도를 달성했습니다.", "warn");
+    return;
+  }
+
+  stopAutoSolve();
+  addLog("즉시 완료 모드를 실행합니다...", "info");
+
+  let maxIterations = 50; // 무한 루프 방지
+  while (!state.isSuccess && maxIterations > 0) {
+    const best = findBestTsvCandidate();
+    if (!best) {
+      addLog("더 이상 배치할 빈 공간이 없습니다.", "warn");
+      break;
+    }
+
+    state.placedTSVs.push({ r: best.r, c: best.c });
+    updateGame();
+    addChartPoint(state.currentTemp);
+    
+    // UI 동적 반영
+    const cellEl = document.querySelector(`.grid-cell[data-r="${best.r}"][data-c="${best.c}"]`);
+    if (cellEl) {
+      cellEl.classList.add("has-tsv");
+    }
+    
+    addLog(`Step ${state.placedTSVs.length}: TSV 배치 (${best.r + 1}, ${best.c + 1}) -> 최고 온도: ${state.currentTemp.toFixed(1)}°C`, "info");
+    maxIterations--;
+  }
+  addLog("즉시 완료 동작 종료.", "success");
+}
+
 // ==========================================
 // 7. 이벤트 리스너 및 초기화
 // ==========================================
 btnApply.addEventListener("click", initGame);
 btnAutoSolve.addEventListener("click", toggleAutoSolve);
+btnInstantSolve.addEventListener("click", instantSolve);
+
+inputSpeed.addEventListener("change", (e) => {
+  currentSpeed = parseInt(e.target.value);
+  if (autoSolveInterval) {
+    // 재시작하여 새로운 속도 적용
+    clearInterval(autoSolveInterval);
+    autoSolveInterval = setInterval(() => {
+      // Logic duplicated for the interval
+      const best = findBestTsvCandidate();
+      if (!best) {
+        stopAutoSolve();
+        addLog("더 이상 배치할 빈 공간이 없습니다.", "warn");
+        return;
+      }
+      state.placedTSVs.push({ r: best.r, c: best.c });
+      const cellEl = document.querySelector(`.grid-cell[data-r="${best.r}"][data-c="${best.c}"]`);
+      if (cellEl) cellEl.classList.add("has-tsv");
+      updateGame();
+      addChartPoint(state.currentTemp);
+      addLog(`Step ${state.placedTSVs.length}: TSV 배치 (${best.r + 1}, ${best.c + 1}) -> 최고 온도: ${state.currentTemp.toFixed(1)}°C`, "info");
+      if (state.isSuccess) stopAutoSolve();
+    }, currentSpeed);
+  }
+});
+
+// Resizer Logic
+const resizer = document.getElementById("resizer");
+const sidebar = document.getElementById("sidebar");
+
+let isResizing = false;
+
+resizer.addEventListener("mousedown", (e) => {
+  isResizing = true;
+  document.body.style.cursor = "col-resize";
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!isResizing) return;
+  // Limit resizing bounds
+  let newWidth = e.clientX;
+  if (newWidth < 400) newWidth = 400;
+  if (newWidth > window.innerWidth * 0.8) newWidth = window.innerWidth * 0.8;
+  sidebar.style.width = `${newWidth}px`;
+});
+
+window.addEventListener("mouseup", () => {
+  if (isResizing) {
+    isResizing = false;
+    document.body.style.cursor = "default";
+  }
+});
 
 // 최초 실행
 window.onload = initGame;
